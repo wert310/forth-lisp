@@ -1,6 +1,4 @@
 
-\ : str= compare 0= ;
-
 \ -----------------------------------------------------------------------------
 \ SYMBOL TABLE
 
@@ -46,6 +44,7 @@ init-symtab
 
 : symbol-name dup sym-name swap sym-len @ ;
 
+
 \ -----------------------------------------------------------------------------
 \ HEAP
 
@@ -57,25 +56,7 @@ variable heap heap0 heap !
   heap @ dup 2 cells + heap !
   dup heap0 HEAP-SIZE + >= abort" out of memory!"
 ;
-: hfree drop ;
-
-\ TODO: freelist
-\ variable hfreelst nil hfreelst !
-\ defer hfree
-\ 
-\ : halloc ( -- addr )
-\   nil hfreelst @ = if heap @ dup 2 cells + heap ! exit then
-\   hfreelst @ @ { old-hfreelst }
-\   hfreelst @ @ cell + @ hfreelst !
-\   old-hfreelst dup hfree
-\ ;
-\ 
-\ :noname ( addr -- )
-\   halloc { new-cell }
-\   new-cell !
-\   hfreelst @ new-cell cell + !
-\   new-cell hfreelst !
-\ ; is hfree
+: hfree drop ; \ TODO
 
 : %cons ( a b -- addr )
   halloc { a b addr }
@@ -87,6 +68,7 @@ variable heap heap0 heap !
 : %cdr ( addr -- b ) cell + @ ;
 : %rplaca ( na addr -- ) ! ;
 : %rplacd ( nd addr -- ) cell + ! ;
+
 
 \ -----------------------------------------------------------------------------
 \ TYPES
@@ -107,13 +89,9 @@ variable heap heap0 heap !
 s" nil" intern constant nil
 s" t" intern constant t
 
-: eq ( addr addr -- )
-  %cdr over %cdr = nip
-;
+: eq ( addr addr -- ) %cdr over %cdr = nip ;
 
-: cons ( ca cb -- addr )
-  %cons T_CONS swap %cons
-;
+: cons ( ca cb -- addr ) %cons T_CONS swap %cons ;
 
 : car ( addr -- a )
   dup nil eq if exit then
@@ -168,6 +146,7 @@ s" t" intern constant t
   then
   drop
 ;
+
 
 \ -----------------------------------------------------------------------------
 \ PARSER 
@@ -248,13 +227,6 @@ defer parse-list
 
 : parse-lisp next-token parse-lisp ;
 
-
-parse-lisp
-
-(defun fact (n)
-   (if (eq n 0) n (* n (fact (- n 1)))))
-
-constant test-parse-1
 
 \ -----------------------------------------------------------------------------
 \ EVAL
