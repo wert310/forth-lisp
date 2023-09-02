@@ -237,6 +237,9 @@ defer parse-list
   cdr recurse
 ;
 
+create global-env nil ,
+create macro-env nil ,
+
 defer apply
 defer evlist
 
@@ -290,7 +293,19 @@ defer evlist
       ." env: " 'env @ show cr .s cr drop nil
       exit
     then
-    \ TODO: macro
+    dup car s" macro" intern eq if
+      cdr dup car >r \ name
+      cdr car 'env recurse \ eval
+      dup r> swap cons macro-env @ cons macro-env !
+      exit
+    then
+    dup car symbolp if \ macro
+      dup car macro-env @ assq dup nil eq invert if
+        cdr swap cdr nil cons apply 'env recurse
+        exit
+      then
+      drop
+    then
     \ apply
     dup car 'env recurse \ eval fn
     swap cdr 'env evlist \ evaled args
@@ -337,8 +352,7 @@ defer evlist
     exit then
   abort" invalid application!"
 ; is apply
-  
-create global-env nil ,
+
 
 : :lisp ( "lisp" ... ";" -- )
   begin parse-lisp dup s" ;" intern eq if drop exit then global-env eval drop again ;
@@ -360,6 +374,7 @@ create global-env nil ,
 (define show (lambda (x) ((forth show) x) nil))
 (define newline (forth cr))
 (newline)
+
 (show t1)
 (newline)
 
@@ -371,10 +386,31 @@ create global-env nil ,
 (define fact nil)
 (setq fact (lambda (n) (if (eq n 0) 1 (* n (fact (- n 1))))))
 
-(newline)
 (show (fact 6))
 (newline)
 
-;
+(define cons (forth cons))
+(define car (forth car))
+(define cdr (forth cdr))
+(macro first (lambda (frm) (cons (quote car) frm)))
 
+(macro defun (lambda (frm)
+ (cons (quote progn)
+       (cons (cons (quote define) (cons (car frm) (cons (quote nil) nil)))
+             (cons (cons (quote setq) (cons (car frm) (cons (cons (quote lambda) (cdr frm)) nil)))
+                   nil)))))
+
+(defun cadr (x) (car (cdr x)))
+
+(show (cadr (quote (6 8 3))))
+(newline)
+
+(defun mapcar (fn xs)
+  (if (eq xs nil) nil
+    (cons (fn (car xs)) (mapcar fn (cdr xs)))))
+
+(show (mapcar (lambda (x) (+ x 2)) (quote (1 2 3))))
+(newline)
+
+;
 
