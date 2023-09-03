@@ -48,7 +48,7 @@ init-symtab
 \ -----------------------------------------------------------------------------
 \ HEAP
 
-10000 cells constant HEAP-SIZE
+100000 cells constant HEAP-SIZE
 HEAP-SIZE allocate throw constant heap0
 variable heap heap0 heap !
 
@@ -411,6 +411,16 @@ defer evlist
 
 (show (mapcar (lambda (x) (+ x 2)) (quote (1 2 3))))
 (newline)
+
+(macro let (lambda (frm)
+ (cons
+  (cons (quote lambda) (cons (mapcar car (car frm)) (cdr frm)))
+  (mapcar cadr (car frm)))))
+
+(let ((x 4) (y 5))
+  (progn
+    (show (+ x y))
+    (newline)))
 
 ;
 
