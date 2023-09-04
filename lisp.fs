@@ -200,8 +200,7 @@ defer parse-list
     exit
   then
   dup numeric invert over [char] ) <> and if drop intern exit then
-  dup numeric if drop 0 0 2swap >number 0 <> if abort" invalid number" then drop d>s box exit then
-  drop cr type cr
+  dup numeric if drop 0 0 2swap >number 0 <> if 1 abort" invalid number" then drop d>s box exit then
   abort" parse error: invalid token" 
 ;
 
@@ -214,7 +213,7 @@ defer parse-list
     next-token
     parse-lisp
     next-token
-    current-token over c@ [char] ) <> if abort" parse error expected )" then
+    current-token over c@ [char] ) <> if 1 abort" parse error expected )" then
     2drop
     cons exit then
   over c@ [char] ) = if
@@ -244,12 +243,12 @@ defer apply
 defer evlist
 
 : eval { exp 'env -- exp }
-  exp
+  exp \ dup show cr
   dup nil eq if exit then
   dup t eq if exit then
   dup numberp if exit then
   dup symbolp if dup 'env @ assq dup nil eq invert if cdr swap drop exit else 2drop then
-                 abort" Unbound variable!" then
+                 1 abort" Unbound variable!" then
   dup consp if
     dup car s" quote" intern eq if 
       cdr car exit
@@ -353,46 +352,25 @@ defer evlist
   abort" invalid application!"
 ; is apply
 
+: zerop 0= if t else nil then ;
 
 : :lisp ( "lisp" ... ";" -- )
   begin parse-lisp dup s" ;" intern eq if drop exit then global-env eval drop again ;
 
-: zerop 0= if t else nil then ;
-
 :lisp
 
-(define three 3)
-(define asd 4)
-(define id (lambda (x) x))
-(define a (id three))
-(define append (forth ++))
-(define l1 (quote (1 2 3 4)))
-(define l2 (quote (5 6 7 8)))
-(define l3 (append l1 l2))
-(define + (lambda (x y) ((forth box) ((forth +) ((forth %cdr) x) ((forth %cdr) y)))))
-(define t1 (progn 1 (+ 3 4)))
 (define show (lambda (x) ((forth show) x) nil))
 (define newline (forth cr))
-(newline)
-
-(show t1)
-(newline)
-
+(define append (forth ++))
+(define + (lambda (x y) ((forth box) ((forth +) ((forth %cdr) x) ((forth %cdr) y)))))
 (define * (lambda (x y) ((forth box) ((forth *) ((forth %cdr) x) ((forth %cdr) y)))))
 (define - (lambda (x y) ((forth box) ((forth -) ((forth %cdr) x) ((forth %cdr) y)))))
 (define zerop (forth zerop))
 (define eq (lambda (a b) (if (zerop ((forth eq) a b)) nil t)))
-
-(define fact nil)
-(setq fact (lambda (n) (if (eq n 0) 1 (* n (fact (- n 1))))))
-
-(show (fact 6))
-(newline)
-
 (define cons (forth cons))
 (define car (forth car))
 (define cdr (forth cdr))
-(macro first (lambda (frm) (cons (quote car) frm)))
+(define cadr (lambda (x) (car (cdr x))))
 
 (macro defun (lambda (frm)
  (cons (quote progn)
@@ -400,24 +378,30 @@ defer evlist
              (cons (cons (quote setq) (cons (car frm) (cons (cons (quote lambda) (cdr frm)) nil)))
                    nil)))))
 
-(defun cadr (x) (car (cdr x)))
-
-(show (cadr (quote (6 8 3))))
-(newline)
-
 (defun mapcar (fn xs)
   (if (eq xs nil) nil
     (cons (fn (car xs)) (mapcar fn (cdr xs)))))
-
-(show (mapcar (lambda (x) (+ x 2)) (quote (1 2 3))))
-(newline)
 
 (macro let (lambda (frm)
  (cons
   (cons (quote lambda) (cons (mapcar car (car frm)) (cdr frm)))
   (mapcar cadr (car frm)))))
 
-(let ((x 4) (y 5))
+;
+
+\ TESTS
+:lisp
+
+(newline)
+
+(defun fact (n) (if (eq n 0) 1 (* n (fact (- n 1)))))
+(show (fact 6))
+(newline)
+
+(show (mapcar (lambda (x) (+ x 2)) (quote (1 2 3))))
+(newline)
+
+(let ((x 3) (y 5))
   (progn
     (show (+ x y))
     (newline)))
