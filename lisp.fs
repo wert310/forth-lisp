@@ -2,25 +2,25 @@
 \ -----------------------------------------------------------------------------
 \ SYMBOL TABLE
 
-1000 cells allocate throw constant stp0
-variable stp
-: symtab stp @ ;
-: ->symtab stp ! ;
+begin-structure symtab-entry
+  field: sym-len
+  field: sym-link
+  field: sym-name
+end-structure
 
-: init-symtab stp0 ->symtab symtab 2 cells erase ;
-init-symtab
+10000 cells constant SYMTAB-SIZE
 
-: sym-len  0 cells + ;
-: sym-link 1 cells + ;
-: sym-name 2 cells + ;
- 
+SYMTAB-SIZE allocate throw dup symtab-entry erase constant stp0
+stp0 value symtab
+
 : symtab-next ( u -- ) 
-  symtab dup >r 2 cells + + dup 2 cells erase ->symtab r> symtab sym-link ! 
+  cell - \ sym-name already allocates 1 cell
+  symtab dup >r symtab-entry + + ( entry size )
+  dup symtab-entry erase to symtab r> symtab sym-link !
 ;
 
 : slookup-at ( addr u stp -- symaddr|0 )
-  >r
-  dup I sym-len @ =
+  >r dup I sym-len @ =
   if I sym-name I sym-len @ str= if I else 0 then
   else 2drop 0 then
   rdrop
@@ -36,10 +36,10 @@ init-symtab
 ;
 
 : intern { addr u -- symaddr }
-         addr u slookup dup 0<> if exit then drop
-         u symtab sym-len !
-         addr symtab sym-name u cmove
-         symtab >r u symtab-next r>
+  addr u slookup dup 0<> if exit then drop
+  u symtab sym-len !
+  addr symtab sym-name u cmove
+  symtab >r u symtab-next r>
 ;
 
 : symbol-name dup sym-name swap sym-len @ ;
