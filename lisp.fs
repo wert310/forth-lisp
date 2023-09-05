@@ -324,7 +324,7 @@ defer evlist
   dup nil eq if 2drop nil exit then swap
   dup nil eq if 2drop nil exit then swap
   2dup
-  over symbolp if cons nil cons exit then
+  over symbolp if cons nil cons -rot 2drop exit then
   car swap
   car swap
   cons >r cdr swap cdr swap recurse r> swap cons
