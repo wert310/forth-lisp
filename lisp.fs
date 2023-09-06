@@ -372,12 +372,12 @@ defer evlist
 (define car (forth car))
 (define cdr (forth cdr))
 (define cadr (lambda (x) (car (cdr x))))
+(define list (lambda args args))
 
 (macro defun (lambda (frm)
- (cons (quote progn)
-       (cons (cons (quote define) (cons (car frm) (cons (quote nil) nil)))
-             (cons (cons (quote setq) (cons (car frm) (cons (cons (quote lambda) (cdr frm)) nil)))
-                   nil)))))
+ (list (quote progn)
+       (list (quote define) (car frm) (quote nil))
+       (list (quote setq) (car frm) (cons (quote lambda) (cdr frm))))))
 
 (defun mapcar (fn xs)
   (if (eq xs nil) nil
