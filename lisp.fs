@@ -247,7 +247,7 @@ defer evlist
   dup nil eq if exit then
   dup t eq if exit then
   dup numberp if exit then
-  dup symbolp if dup 'env @ assq dup nil eq invert if cdr swap drop exit else 2drop then
+  dup symbolp if dup 'env @ assq dup nil eq invert if cdr swap drop exit else drop ." symbol: " show cr then
                  1 abort" Unbound variable!" then
   dup consp if
     dup car s" quote" intern eq if 
@@ -372,6 +372,8 @@ defer evlist
 (define car (forth car))
 (define cdr (forth cdr))
 (define cadr (lambda (x) (car (cdr x))))
+(define caar (lambda (x) (car (car x))))
+(define cdar (lambda (x) (cdr (car x))))
 (define list (lambda args args))
 
 (macro defun (lambda (frm)
@@ -387,6 +389,29 @@ defer evlist
  (cons
   (cons (quote lambda) (cons (mapcar car (car frm)) (cdr frm)))
   (mapcar cadr (car frm)))))
+
+(define rplaca (lambda (l x) ((forth rplaca) x l)))
+(define rplacd (lambda (l x) ((forth rplacd) x l)))
+(define error (forth throw))
+(define assq (forth assq))
+(define consp (lambda (x) (if (zerop ((forth consp) x)) nil t)))
+
+(define setter
+  (let ((setters (list (cons car rplaca)
+                       (cons cdr rplacd))))
+  (let ((setter (lambda (proc)
+                  (let ((p (assq proc setters)))
+                    (if p (cdr p) (error (quote no-setter)))))))
+  (let ((set-setter (lambda (proc setter)
+                      (setq setters (cons (cons proc setter) setters)))))
+  (progn
+    (set-setter setter set-setter)
+    setter)))))
+
+(macro setf (lambda (frm)
+  (if (consp (car frm))
+    (cons (list (quote setter) (caar frm)) (append (cdar frm) (cdr frm)))
+    (cons (quote setq) frm))))
 
 ;
 
