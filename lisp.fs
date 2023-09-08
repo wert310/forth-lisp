@@ -48,7 +48,7 @@ stp0 value symtab
 \ -----------------------------------------------------------------------------
 \ HEAP
 
-100000 cells constant HEAP-SIZE
+1000000 cells constant HEAP-SIZE
 HEAP-SIZE allocate throw constant heap0
 variable heap heap0 heap !
 
@@ -289,7 +289,7 @@ defer evlist
       exit
     then
     dup car s" show-env" intern eq if
-      ." env: " 'env @ show cr .s cr drop nil
+      ." env: " 'env @ show cr .s cr drop 'env @
       exit
     then
     dup car s" macro" intern eq if
@@ -321,10 +321,11 @@ defer evlist
 ; is evlist
 
 : zip ( lst lst -- lst )
-  dup nil eq if 2drop nil exit then swap
-  dup nil eq if 2drop nil exit then swap
+  over nil eq if 2drop nil exit then
   2dup
   over symbolp if cons nil cons -rot 2drop exit then
+  dup nil eq if 2drop nil exit then swap
+  dup nil eq if 2drop nil exit then swap
   car swap
   car swap
   cons >r cdr swap cdr swap recurse r> swap cons
@@ -374,6 +375,7 @@ defer evlist
 (define cadr (lambda (x) (car (cdr x))))
 (define caar (lambda (x) (car (car x))))
 (define cdar (lambda (x) (cdr (car x))))
+(define cddr (lambda (x) (cdr (cdr x))))
 (define list (lambda args args))
 
 (macro defun (lambda (frm)
@@ -413,24 +415,109 @@ defer evlist
     (cons (list (quote setter) (caar frm)) (append (cdar frm) (cdr frm)))
     (cons (quote setq) frm))))
 
+(define apply (forth apply))
+(defun not (x) (if x nil t))
+(defun null (x) (eq x nil))
+(defun and args (if (null args) t (if (car args) (apply and (cdr args)) nil)))
+
+(defun desugar-cond (branches)
+  (let ((current-branch (car branches)))
+    (if (eq t (car current-branch)) (cons (quote progn) (cdr current-branch))
+     (list (quote if) (car current-branch)
+           (cons (quote progn) (cdr current-branch))
+           (desugar-cond (cdr branches))))))
+(macro cond desugar-cond)
+
+(macro push (lambda (frm)
+  (let ((elt (car frm))
+        (place (cadr frm)))
+    (list (quote setf) place (list (quote cons) elt place)))))
+
+(macro pop (lambda (frm)
+  (let ((place (car frm)))
+    (list (quote let) (list (list (quote pop-tmp-var) (list (quote car) place)))
+      (list (quote progn) (list (quote setf) place (list (quote cdr) place)) (quote pop-tmp-var))))))
+
+(defun print (what) (progn (show what) (newline)))
+(macro defvar (lambda (frm) (cons (quote define) frm)))
+(macro defconst (lambda (frm) (cons (quote define) frm)))
+
 ;
 
 \ TESTS
 :lisp
 
 (newline)
-
 (defun fact (n) (if (eq n 0) 1 (* n (fact (- n 1)))))
-(show (fact 6))
-(newline)
+(show (fact 6)) (newline)
+(show (mapcar (lambda (x) (+ x 2)) (quote (1 2 3)))) (newline)
+(let ((x 3) (y 5)) (progn (show (+ x y)) (newline)))
+(let ((x (list 1 2))) (progn (setf (car x) 3) (show x) (newline)))
 
-(show (mapcar (lambda (x) (+ x 2)) (quote (1 2 3))))
-(newline)
+;
 
-(let ((x 3) (y 5))
-  (progn
-    (show (+ x y))
-    (newline)))
+\ prolog
+:lisp
+
+(defconst unbound (quote unbound))
+(defun var (name binding) (cons (quote var) (cons name binding)))
+(defun var-p (var) (eq (quote var) (car var)))
+(defun var-name (var) (cadr var))
+(defun var-binding (var) (cddr var))
+(defun var-bound-p (var) (not (eq (var-binding var) unbound)))
+
+(setf (setter var-binding) (lambda (var binding) (setf (cdr (cdr var)) binding)))
+
+(defun var-deref (exp)
+  (if (and (var-p exp) (var-bound-p exp))
+    (var-deref (var-binding exp))
+    exp))
+
+(defvar *trail* nil)
+
+(let ((old-var-binding-setter (setter var-binding)))
+  (setf (setter var-binding) (lambda (var binding)
+                               (if (not (eq var binding))
+                                   (progn
+                                     (if (not (eq binding unbound)) (push var *trail*) nil)
+                                     (old-var-binding-setter var binding)) nil))))
+
+(defun unify! (x y)
+  (cond ((eq (var-deref x) (var-deref y)) t)
+        ((var-p x) (setf (var-binding x) y) t)
+        ((var-p y) (setf (var-binding y) x) t)
+        ((and (consp x) (consp y))
+         (and (unify! (car x) (car y))
+              (unify! (cdr x) (cdr y))))
+        (t nil)))
+
+(defun undo-bindings! (old-trail)
+  (if (eq *trail* old-trail) nil
+    (progn
+      (setf (var-binding (pop *trail*)) unbound)
+      (undo-bindings! old-trail))))
+
+(defvar *var-counter* 0)
+
+(defun ? ()
+  (let ((v (var *var-counter* unbound)))
+    (progn (setf *var-counter* (+ 1 *var-counter*))
+           v)))
+
+;
+
+:lisp
+
+(let ((x (?))
+      (old-trail1 *trail*))
+(progn
+
+ (print (unify! x (?)))
+
+ (print (var-deref x))
+ (print *trail*)
+ (undo-bindings! old-trail1)
+ (print (var-deref x))))
 
 ;
 
