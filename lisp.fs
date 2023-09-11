@@ -356,6 +356,10 @@ defer evlist
 
 : zerop 0= if t else nil then ;
 
+0 value gensym-counter
+: gensym s" gensym" gensym-counter dup 1+ to gensym-counter s>d <# #s #>
+         { g gn n nn } g pad gn move n pad gn + nn move pad gn nn + intern ;
+
 : :lisp ( "lisp" ... ";" -- )
   begin parse-lisp dup s" ;" intern eq if drop exit then global-env eval drop again ;
 
@@ -376,12 +380,13 @@ defer evlist
 (define caar (lambda (x) (car (car x))))
 (define cdar (lambda (x) (cdr (car x))))
 (define cddr (lambda (x) (cdr (cdr x))))
+(define caddr (lambda (x) (car (cdr (cdr x)))))
 (define list (lambda args args))
 
 (macro defun (lambda (frm)
  (list (quote progn)
        (list (quote define) (car frm) (quote nil))
-       (list (quote setq) (car frm) (cons (quote lambda) (cdr frm))))))
+       (list (quote setq) (car frm) (list (quote lambda) (cadr frm) (cons (quote progn) (cddr frm)) )))))
 
 (defun mapcar (fn xs)
   (if (eq xs nil) nil
@@ -389,7 +394,7 @@ defer evlist
 
 (macro let (lambda (frm)
  (cons
-  (cons (quote lambda) (cons (mapcar car (car frm)) (cdr frm)))
+  (cons (quote lambda) (cons (mapcar car (car frm)) (list (cons (quote progn) (cdr frm)))))
   (mapcar cadr (car frm)))))
 
 (define rplaca (lambda (l x) ((forth rplaca) x l)))
@@ -397,6 +402,7 @@ defer evlist
 (define error (forth throw))
 (define assq (forth assq))
 (define consp (lambda (x) (if (zerop ((forth consp) x)) nil t)))
+(define symbolp (lambda (x) (if (zerop ((forth symbolp) x)) nil t)))
 
 (define setter
   (let ((setters (list (cons car rplaca)
@@ -428,19 +434,40 @@ defer evlist
            (desugar-cond (cdr branches))))))
 (macro cond desugar-cond)
 
+(define gensym (forth gensym))
+
 (macro push (lambda (frm)
   (let ((elt (car frm))
         (place (cadr frm)))
     (list (quote setf) place (list (quote cons) elt place)))))
 
 (macro pop (lambda (frm)
-  (let ((place (car frm)))
-    (list (quote let) (list (list (quote pop-tmp-var) (list (quote car) place)))
-      (list (quote progn) (list (quote setf) place (list (quote cdr) place)) (quote pop-tmp-var))))))
+  (let ((place (car frm))
+        (pop-tmp-var (gensym)))
+    (list (quote let) (list (list pop-tmp-var (list (quote car) place)))
+      (list (quote progn) (list (quote setf) place (list (quote cdr) place)) pop-tmp-var)))))
 
 (defun print (what) (progn (show what) (newline)))
 (macro defvar (lambda (frm) (cons (quote define) frm)))
 (macro defconst (lambda (frm) (cons (quote define) frm)))
+
+(defun destructuring-bind-expander (pattern symbol)
+  (cond ((null pattern) nil)
+        ((symbolp pattern) (list (list pattern symbol)))
+        (t (append (destructuring-bind-expander (car pattern) (list (quote car) symbol))
+                   (destructuring-bind-expander (cdr pattern) (list (quote cdr) symbol))))))
+
+(macro destructuring-bind (lambda (frm)
+  (let ((v (gensym)))
+    (list (quote let) (list (list v (cadr frm)))
+          (cons (quote let) (cons (destructuring-bind-expander (car frm) v) (cddr frm)))))))
+
+(macro defmacro (lambda (frm)
+                  (list (quote macro) (car frm)
+                        (list (quote lambda) (list (quote lst))
+                              (append
+                               (list (quote destructuring-bind) (cadr frm) (quote lst))
+                               (cddr frm))))))
 
 ;
 
@@ -456,7 +483,7 @@ defer evlist
 
 ;
 
-\ prolog
+\ PROLOG
 :lisp
 
 (defconst unbound (quote unbound))
@@ -479,7 +506,8 @@ defer evlist
   (setf (setter var-binding) (lambda (var binding)
                                (if (not (eq var binding))
                                    (progn
-                                     (if (not (eq binding unbound)) (push var *trail*) nil)
+                                     (if (not (eq binding unbound))
+                                         (push var *trail*) nil)
                                      (old-var-binding-setter var binding)) nil))))
 
 (defun unify! (x y)
@@ -501,8 +529,8 @@ defer evlist
 
 (defun ? ()
   (let ((v (var *var-counter* unbound)))
-    (progn (setf *var-counter* (+ 1 *var-counter*))
-           v)))
+    (setf *var-counter* (+ 1 *var-counter*))
+    v))
 
 ;
 
@@ -510,14 +538,11 @@ defer evlist
 
 (let ((x (?))
       (old-trail1 *trail*))
-(progn
-
  (print (unify! x (?)))
-
  (print (var-deref x))
  (print *trail*)
  (undo-bindings! old-trail1)
- (print (var-deref x))))
+ (print (var-deref x)))
 
 ;
 
