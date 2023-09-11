@@ -424,7 +424,8 @@ defer evlist
 (define apply (forth apply))
 (defun not (x) (if x nil t))
 (defun null (x) (eq x nil))
-(defun and args (if (null args) t (if (car args) (apply and (cdr args)) nil)))
+(macro and (lambda (args) (if (null args) t (list (quote if) (car args) (cons (quote and) (cdr args)) nil))))
+
 
 (defun desugar-cond (branches)
   (let ((current-branch (car branches)))
@@ -469,6 +470,11 @@ defer evlist
                                (list (quote destructuring-bind) (cadr frm) (quote lst))
                                (cddr frm))))))
 
+(defun assert (cnd)
+  (if cnd nil (error assert-error)))
+
+(defmacro funcall args args)
+
 ;
 
 \ TESTS
@@ -488,7 +494,7 @@ defer evlist
 
 (defconst unbound (quote unbound))
 (defun var (name binding) (cons (quote var) (cons name binding)))
-(defun var-p (var) (eq (quote var) (car var)))
+(defun var-p (var) (and (consp var) (eq (quote var) (car var))))
 (defun var-name (var) (cadr var))
 (defun var-binding (var) (cddr var))
 (defun var-bound-p (var) (not (eq (var-binding var) unbound)))
@@ -532,6 +538,24 @@ defer evlist
     (setf *var-counter* (+ 1 *var-counter*))
     v))
 
+(defvar *db-predicates* nil)
+
+(defun add-clause (clause)
+  (let ((clause-predicate (caar clause)))
+    (assert (and (symbolp clause-predicate) (not (var-p clause-predicate))))
+    (let ((entry (assq clause-predicate *db-predicates*)))
+    (if (null entry)
+        (progn
+          (setq entry (cons clause-predicate nil))
+          (push entry *db-predicates*))
+      nil)
+    (setf (cdr entry) (append (cdr entry) (list clause)))
+    clause-predicate)))
+
+(defmacro <- clause (list (quote add-clause) (list (quote quote) clause)))
+
+(defun mk-= (x y) (list (quote =) x y))
+
 ;
 
 :lisp
@@ -543,6 +567,9 @@ defer evlist
  (print *trail*)
  (undo-bindings! old-trail1)
  (print (var-deref x)))
+
+(<- (member ?item (?item . ?rest)))
+(<- (member ?item (?x . ?rest)) (member ?item ?rest))
 
 ;
 
