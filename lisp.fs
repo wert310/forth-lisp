@@ -13,7 +13,7 @@ end-structure
 SYMTAB-SIZE allocate throw dup symtab-entry erase constant stp0
 stp0 value symtab
 
-: symtab-next ( u -- ) 
+: symtab-next ( u -- )
   cell - \ sym-name already allocates 1 cell
   symtab dup >r symtab-entry + + ( entry size )
   dup symtab-entry erase to symtab r> symtab sym-link !
@@ -48,7 +48,7 @@ stp0 value symtab
 \ -----------------------------------------------------------------------------
 \ HEAP
 
-1000000 cells constant HEAP-SIZE
+10000000 cells constant HEAP-SIZE
 HEAP-SIZE allocate throw constant heap0
 variable heap heap0 heap !
 
@@ -149,7 +149,7 @@ s" t" intern constant t
 
 
 \ -----------------------------------------------------------------------------
-\ PARSER 
+\ PARSER
 
 variable token 256 allot
 : parse-token ( "chars" -- addr u )
@@ -163,8 +163,8 @@ variable token 256 allot
   repeat
   \ token
   begin
-    dup c@ buf ! 
-    buf char+ to buf 
+    dup c@ buf !
+    buf char+ to buf
     char+
 
     dup end <
@@ -201,7 +201,7 @@ defer parse-list
   then
   dup numeric invert over [char] ) <> and if drop intern exit then
   dup numeric if drop 0 0 2swap >number 0 <> if 1 abort" invalid number" then drop d>s box exit then
-  abort" parse error: invalid token" 
+  abort" parse error: invalid token"
 ;
 
 :noname ( "list" -- addr )
@@ -250,7 +250,7 @@ defer evlist
   dup symbolp if dup 'env @ assq dup nil eq invert if cdr swap drop exit else drop ." symbol: " show cr then
                  1 abort" Unbound variable!" then
   dup consp if
-    dup car s" quote" intern eq if 
+    dup car s" quote" intern eq if
       cdr car exit
     then
     dup car s" if" intern eq if
@@ -261,7 +261,7 @@ defer evlist
     dup car s" progn" intern eq if
       cdr ( lst )
       begin
-        dup car 'env recurse ( lst res ) swap cdr 
+        dup car 'env recurse ( lst res ) swap cdr
         dup nil eq invert while
         swap drop
       repeat
@@ -288,10 +288,7 @@ defer evlist
       cdr car %cdr symbol-name find-name dup 0= abort" invalid forth primitive!" forth-primitive
       exit
     then
-    dup car s" show-env" intern eq if
-      ." env: " 'env @ show cr .s cr drop 'env @
-      exit
-    then
+    dup car s" current-env" intern eq if drop 'env @ exit then
     dup car s" macro" intern eq if
       cdr dup car >r \ name
       cdr car 'env recurse \ eval
@@ -341,9 +338,9 @@ defer evlist
   dup car swap cdr recurse
 ;
 
-:noname ( fn args -- val ) 
+:noname ( fn args -- val )
   swap dup functionp if
-    ( args fn ) dup >r function-args swap zip ( new-env ) 
+    ( args fn ) dup >r function-args swap zip ( new-env )
     I function-env ++ ( env ) halloc dup -rot ! ( 'env ) r>  function-body swap eval
     exit then
   dup forthp if
@@ -359,6 +356,14 @@ defer evlist
 0 value gensym-counter
 : gensym s" gensym" gensym-counter dup 1+ to gensym-counter s>d <# #s #>
          { g gn n nn } g pad gn move n pad gn + nn move pad gn nn + intern ;
+
+: symbol-ref ( sym n -- sym )
+  over symbolp invert abort" symbol-ref: not a symbol"
+  swap %cdr symbol-name ( n addr len )
+  rot %cdr 2dup <= abort" symbol-ref: invalid idx"
+  ( addr len n ) rot + swap drop 1 intern
+;
+
 
 : :lisp ( "lisp" ... ";" -- )
   begin parse-lisp dup s" ;" intern eq if drop exit then global-env eval drop again ;
@@ -422,6 +427,8 @@ defer evlist
     (cons (quote setq) frm))))
 
 (define apply (forth apply))
+(define eval (forth eval))
+
 (defun not (x) (if x nil t))
 (defun null (x) (eq x nil))
 (macro and (lambda (args) (if (null args) t (list (quote if) (car args) (cons (quote and) (cdr args)) nil))))
@@ -474,6 +481,20 @@ defer evlist
   (if cnd nil (error assert-error)))
 
 (defmacro funcall args args)
+
+(define symbol-ref (forth symbol-ref))
+(define zip (forth zip))
+
+(defun > (x y) (if (zerop ((forth >) ((forth %cdr) x) ((forth %cdr) y))) nil t))
+(macro or (lambda (args) (if (null args) nil (list (quote if) (car args) t (cons (quote or) (cdr args))))))
+(defun >= (a b) (or (> a b) (eq a b)))
+(defun iota (start end)
+  (if (>= start end) nil (cons start (iota (+ 1 start) end))))
+
+(defmacro let* (binds . body)
+  (if (null binds) (cons (quote progn) body)
+    (list (quote let) (list (car binds))
+          (cons (quote let*) (cons (cdr binds) body)))))
 
 ;
 
@@ -555,6 +576,52 @@ defer evlist
 (defmacro <- clause (list (quote add-clause) (list (quote quote) clause)))
 
 (defun mk-= (x y) (list (quote =) x y))
+(defun symbol-var-p (sym) (and (symbolp sym) (eq (symbol-ref sym 0) (quote ?))))
+
+(defun length (lst) (if (null lst) 0 (+ 1 (length (cdr lst)))))
+
+(defun memq (elt lst)
+  (cond ((null lst) nil)
+        ((eq elt (car lst)) t)
+        (t (memq elt (cdr lst)))))
+
+(defun compile-arg (arg parms)
+  (cond ((or (symbol-var-p arg) (memq arg parms)) arg)
+        ((consp arg) (list (quote cons) (compile-arg (car arg) parms) (compile-arg (cdr arg) parms)))
+        ((null arg) nil)
+        (t (list (quote quote) arg))))
+
+
+(defun compile-clause-body (body cont)
+  (if (null body) (list (quote funcall) cont)
+    (let* ((goal (car body))
+           (predicate (car goal))
+           (args (cdr goal))
+           (arity (length args)))
+      (cond ((and (eq predicate (quote =)) (eq 2 arity))
+             (list (quote if) (list (quote unify!)
+                                    (compile-arg (car args) args)
+                                    (compile-arg (cadr args) args))
+                              (compile-clause-body (cdr body) cont)
+                              nil))
+            (t (append
+                 (cons predicate (mapcar (lambda (a) (compile-arg a args)) args))
+                 (list (list (quote lambda) nil (compile-clause-body (cdr body) cont)))))))))
+
+(defun compile-clause (clause params cont)
+  (let ((args (cdar clause)))
+    (compile-clause-body
+      (append (mapcar (lambda (a) (destructuring-bind (x . y) a (list (quote =) x y))) (zip params args))
+              (cdr clause))
+      cont)))
+
+(defun compile-predicate (symbol clauses)
+  (let* ((arity (length (cdr (caar clauses))))
+         (params (mapcar (lambda (x) (gensym)) (iota 0 arity))))
+    (mapcar (lambda (x) (assert (eq arity (length (cdar x))))) clauses)
+    (append (list (quote defun) symbol (append params (list (quote cont))))
+            (mapcar (lambda (clause) (compile-clause clause params (quote cont)))
+                    clauses))))
 
 ;
 
@@ -571,5 +638,8 @@ defer evlist
 (<- (member ?item (?item . ?rest)))
 (<- (member ?item (?x . ?rest)) (member ?item ?rest))
 
-;
 
+(print
+  (compile-predicate (quote member) (cdr (assq (quote member) *db-predicates*))))
+
+;
