@@ -427,7 +427,8 @@ defer evlist
     (cons (quote setq) frm))))
 
 (define apply (forth apply))
-(define eval (forth eval))
+(define eval (lambda (form . args)
+              ((forth eval) form (if (eq nil args) ((forth global-env)) ((forth %cons) (car args) 0)))))
 
 (defun not (x) (if x nil t))
 (defun null (x) (eq x nil))
@@ -509,6 +510,22 @@ defer evlist
                        (cons sep (cons (car lst) (loop sep (cdr lst))))))))
       (cons (car lst) (loop sep (cdr lst))))))
 
+(defun length (lst) (if (null lst) 0 (+ 1 (length (cdr lst)))))
+
+(defun memq (elt lst)
+  (cond ((null lst) nil)
+        ((eq elt (car lst)) t)
+        (t (memq elt (cdr lst)))))
+
+(defun filter (fn lst)
+  (cond ((null lst) nil)
+        ((fn (car lst)) (cons (car lst) (filter fn (cdr lst))))
+        (t (filter fn (cdr lst)))))
+
+(defun remove-duplicates (lst)
+  (if (null lst) nil
+    (cons (car lst) (remove-duplicates (filter (lambda (x) (not (eq x (car lst)))) (cdr lst))))))
+
 ;
 
 \ TESTS
@@ -577,31 +594,8 @@ defer evlist
     (setf *var-counter* (+ 1 *var-counter*))
     v))
 
-(defvar *db-predicates* nil)
-
-(defun add-clause (clause)
-  (let ((clause-predicate (caar clause)))
-    (assert (and (symbolp clause-predicate) (not (var-p clause-predicate))))
-    (let ((entry (assq clause-predicate *db-predicates*)))
-    (if (null entry)
-        (progn
-          (setq entry (cons clause-predicate nil))
-          (push entry *db-predicates*))
-      nil)
-    (setf (cdr entry) (append (cdr entry) (list clause)))
-    clause-predicate)))
-
-(defmacro <- clause (list (quote add-clause) (list (quote quote) clause)))
-
 (defun mk-= (x y) (list (quote =) x y))
 (defun symbol-var-p (sym) (and (symbolp sym) (eq (symbol-ref sym 0) (quote ?))))
-
-(defun length (lst) (if (null lst) 0 (+ 1 (length (cdr lst)))))
-
-(defun memq (elt lst)
-  (cond ((null lst) nil)
-        ((eq elt (car lst)) t)
-        (t (memq elt (cdr lst)))))
 
 (defun compile-arg (arg parms)
   (cond ((or (symbol-var-p arg) (and (symbolp arg) (memq arg parms))) arg)
@@ -625,15 +619,6 @@ defer evlist
             (t (append
                  (cons predicate (mapcar (lambda (a) (compile-arg a args)) args))
                  (list (list (quote lambda) nil (compile-clause-body (cdr body) cont)))))))))
-
-(defun filter (fn lst)
-  (cond ((null lst) nil)
-        ((fn (car lst)) (cons (car lst) (filter fn (cdr lst))))
-        (t (filter fn (cdr lst)))))
-
-(defun remove-duplicates (lst)
-  (if (null lst) nil
-    (cons (car lst) (remove-duplicates (filter (lambda (x) (not (eq x (car lst)))) (cdr lst))))))
 
 (defun variables-in (exp)
   (cond ((symbol-var-p exp) (list exp))
@@ -668,6 +653,55 @@ defer evlist
               (mapcar (lambda (clause) (compile-clause clause params (quote cont)))
                       clauses)))))
 
+(defvar *db-predicates* nil)
+(defvar *uncompiled* nil)
+
+(defun add-clause (clause)
+  (let ((clause-predicate (caar clause)))
+    (assert (and (symbolp clause-predicate) (not (var-p clause-predicate))))
+    (let ((entry (assq clause-predicate *db-predicates*)))
+      (if (null entry)
+        (progn
+          (setq entry (cons clause-predicate nil))
+          (push entry *db-predicates*))
+        nil)
+    (setf (cdr entry) (append (cdr entry) (list clause)))
+    (if (not (memq clause-predicate *uncompiled*))
+      (push clause-predicate *uncompiled*) nil)
+    clause-predicate)))
+
+(defmacro <- clause (list (quote add-clause) (list (quote quote) clause)))
+
+(defun clear-predicate (symbol)
+  (setq *db-predicates* (filter (lambda (x) (not (eq (car x) symbol))) *db-predicates*)))
+
+
+(defun prolog-success (var-names vars cont)
+  (if (null vars) (print (quote yes))
+      (mapcar (lambda (x) (display (car x)) (display (quote =)) (display (cdr x)) (newline))
+          (zip var-names vars))))
+
+(defun reverse (lst)
+  (if (null lst) nil (append (reverse (cdr lst)) (cons (car lst) nil))))
+
+(defun success () (print (quote yes)))
+
+(defun run-prolog (goals)
+ (let ((vars (variables-in goals)))
+   (clear-predicate (quote toplevel-query))
+   (add-clause (cons (list (quote toplevel-query)) goals))
+   (let ((uncompiled (reverse *uncompiled*)))
+     (setq *uncompiled* nil)
+     (append
+       (cons (quote progn)
+         (mapcar (lambda (sym)
+                   (compile-predicate sym (cdr (assq sym *db-predicates*))))
+                 uncompiled))
+         (list (list (quote setq) (quote *trail*) nil)
+               (list (quote toplevel-query) (quote success)))))))
+
+(defmacro ?- goals (run-prolog goals))
+
 ;
 
 :lisp
@@ -683,6 +717,7 @@ defer evlist
 (<- (member ?item (?item . ?rest)))
 (<- (member ?item (?x . ?rest)) (member ?item ?rest))
 
-(print (compile-predicate (quote member) (cdr (assq (quote member) *db-predicates*))))
+(?- (member 2 (list 2 3 2 3)))
+
 
 ;
