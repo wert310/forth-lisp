@@ -496,6 +496,19 @@ defer evlist
     (list (quote let) (list (car binds))
           (cons (quote let*) (cons (cdr binds) body)))))
 
+(defmacro letrec (binds . body)
+  (list (quote let) (mapcar (lambda (b)  (list (car b) nil)) binds)
+    (cons (quote progn)
+      (append (mapcar (lambda (b) (list (quote setq) (car b) (cadr b))) binds)
+              body))))
+
+(defun intersperse (sep lst)
+  (if (null lst) nil
+    (letrec ((loop (lambda (sep lst)
+                     (if (null lst) nil
+                       (cons sep (cons (car lst) (loop sep (cdr lst))))))))
+      (cons (car lst) (loop sep (cdr lst))))))
+
 ;
 
 \ TESTS
@@ -537,14 +550,19 @@ defer evlist
                                          (push var *trail*) nil)
                                      (old-var-binding-setter var binding)) nil))))
 
+(defun equal (a b)
+  (cond ((and (consp a) (consp b)) (and (equal (car a) (car b)) (equal (cdr a) (cdr b))))
+        (t (eq a b))))
+
 (defun unify! (x y)
-  (cond ((eq (var-deref x) (var-deref y)) t)
-        ((var-p x) (setf (var-binding x) y) t)
-        ((var-p y) (setf (var-binding y) x) t)
-        ((and (consp x) (consp y))
-         (and (unify! (car x) (car y))
-              (unify! (cdr x) (cdr y))))
-        (t nil)))
+  (let ((deref-x (var-deref x)) (deref-y (var-deref y)))
+    (cond ((equal deref-x deref-y) t)
+          ((var-p deref-x) (setf (var-binding deref-x) deref-y) t)
+          ((var-p deref-y) (setf (var-binding deref-y) deref-x) t)
+          ((and (consp deref-x) (consp deref-y))
+           (and (unify! (car deref-x) (car deref-y))
+                (unify! (cdr deref-x) (cdr deref-y))))
+          (t nil))))
 
 (defun undo-bindings! (old-trail)
   (if (eq *trail* old-trail) nil
@@ -586,7 +604,7 @@ defer evlist
         (t (memq elt (cdr lst)))))
 
 (defun compile-arg (arg parms)
-  (cond ((or (symbol-var-p arg) (memq arg parms)) arg)
+  (cond ((or (symbol-var-p arg) (and (symbolp arg) (memq arg parms))) arg)
         ((consp arg) (list (quote cons) (compile-arg (car arg) parms) (compile-arg (cdr arg) parms)))
         ((null arg) nil)
         (t (list (quote quote) arg))))
@@ -608,20 +626,47 @@ defer evlist
                  (cons predicate (mapcar (lambda (a) (compile-arg a args)) args))
                  (list (list (quote lambda) nil (compile-clause-body (cdr body) cont)))))))))
 
+(defun filter (fn lst)
+  (cond ((null lst) nil)
+        ((fn (car lst)) (cons (car lst) (filter fn (cdr lst))))
+        (t (filter fn (cdr lst)))))
+
+(defun remove-duplicates (lst)
+  (if (null lst) nil
+    (cons (car lst) (remove-duplicates (filter (lambda (x) (not (eq x (car lst)))) (cdr lst))))))
+
+(defun variables-in (exp)
+  (cond ((symbol-var-p exp) (list exp))
+        ((consp exp) (append (variables-in (car exp)) (variables-in (cdr exp))))
+        (t nil)))
+
+(defun bind-unbound-vars (params exp)
+  (let ((exp-vars (remove-duplicates (filter (lambda (x) (not (memq x params))) (variables-in exp)))))
+    (if (null exp-vars) exp
+      (list (quote let) (mapcar (lambda (v) (list v (quote (?)))) exp-vars) exp))))
+
 (defun compile-clause (clause params cont)
   (let ((args (cdar clause)))
-    (compile-clause-body
-      (append (mapcar (lambda (a) (destructuring-bind (x . y) a (list (quote =) x y))) (zip params args))
-              (cdr clause))
-      cont)))
+    (bind-unbound-vars params
+      (compile-clause-body
+        (append (mapcar (lambda (a) (destructuring-bind (x . y) a (list (quote =) x y))) (zip params args))
+                (cdr clause))
+        cont))))
+
+(defun add-undo-bindings (compiled-exps)
+  (if (eq 1 (length compiled-exps)) compiled-exps
+    (list (append (list (quote let) (list (list (quote old-trail) (quote *trail*))))
+                  (intersperse (quote (undo-bindings! old-trail)) compiled-exps)))))
+
 
 (defun compile-predicate (symbol clauses)
   (let* ((arity (length (cdr (caar clauses))))
          (params (mapcar (lambda (x) (gensym)) (iota 0 arity))))
     (mapcar (lambda (x) (assert (eq arity (length (cdar x))))) clauses)
     (append (list (quote defun) symbol (append params (list (quote cont))))
-            (mapcar (lambda (clause) (compile-clause clause params (quote cont)))
-                    clauses))))
+            (add-undo-bindings
+              (mapcar (lambda (clause) (compile-clause clause params (quote cont)))
+                      clauses)))))
 
 ;
 
@@ -638,8 +683,6 @@ defer evlist
 (<- (member ?item (?item . ?rest)))
 (<- (member ?item (?x . ?rest)) (member ?item ?rest))
 
-
-(print
-  (compile-predicate (quote member) (cdr (assq (quote member) *db-predicates*))))
+(print (compile-predicate (quote member) (cdr (assq (quote member) *db-predicates*))))
 
 ;
