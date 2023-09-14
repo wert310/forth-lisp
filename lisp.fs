@@ -236,6 +236,16 @@ defer parse-list
   cdr recurse
 ;
 
+s" quote" intern       constant SYM-QUOTE
+s" if" intern          constant SYM-IF
+s" progn" intern       constant SYM-PROGN
+s" define" intern      constant SYM-DEFINE
+s" setq" intern        constant SYM-SETQ
+s" lambda" intern      constant SYM-LAMBDA
+s" forth" intern       constant SYM-FORTH
+s" current-env" intern constant SYM-CURRENT-ENV
+s" macro" intern       constant SYM-MACRO
+
 create global-env nil ,
 create macro-env nil ,
 
@@ -250,15 +260,15 @@ defer evlist
   dup symbolp if dup 'env @ assq dup nil eq invert if cdr swap drop exit else drop ." symbol: " show cr then
                  1 abort" Unbound variable!" then
   dup consp if
-    dup car s" quote" intern eq if
+    dup car SYM-QUOTE eq if
       cdr car exit
     then
-    dup car s" if" intern eq if
+    dup car SYM-IF eq if
       cdr dup car ( lst cnd ) >r cdr dup car ( lst thn ) swap cdr car ( thn els )
       r> 'env recurse nil eq if 'env recurse swap drop else drop 'env recurse then
       exit
     then
-    dup car s" progn" intern eq if
+    dup car SYM-PROGN eq if
       cdr ( lst )
       begin
         dup car 'env recurse ( lst res ) swap cdr
@@ -268,28 +278,28 @@ defer evlist
       drop
       exit
     then
-    dup car s" define" intern eq if
+    dup car SYM-DEFINE eq if
       cdr dup car >r \ name
       cdr car 'env recurse \ eval
       dup r> swap cons 'env @ cons 'env ! \ cons in front of env
       exit
     then
-    dup car s" setq" intern eq if
+    dup car SYM-SETQ eq if
       cdr dup car >r cdr car 'env recurse
       dup r> 'env @ assq dup nil eq abort" setq unbound variable!" ( val cell )
       rplacd
       exit
     then
-    dup car s" lambda" intern eq if
+    dup car SYM-LAMBDA eq if
       cdr dup car ( lst args ) >r cdr car ( body ) 'env @ swap ( env body ) r> swap function
       exit
     then
-    dup car s" forth" intern eq if
+    dup car SYM-FORTH eq if
       cdr car %cdr symbol-name find-name dup 0= abort" invalid forth primitive!" forth-primitive
       exit
     then
-    dup car s" current-env" intern eq if drop 'env @ exit then
-    dup car s" macro" intern eq if
+    dup car SYM-CURRENT-ENV eq if drop 'env @ exit then
+    dup car SYM-MACRO eq if
       cdr dup car >r \ name
       cdr car 'env recurse \ eval
       dup r> swap cons macro-env @ cons macro-env !
@@ -362,6 +372,17 @@ defer evlist
   swap %cdr symbol-name ( n addr len )
   rot %cdr 2dup <= abort" symbol-ref: invalid idx"
   ( addr len n ) rot + swap drop 1 intern
+;
+
+: symbol-len ( sym -- u )
+  dup symbolp invert abort" symbol-len: not a symbol"
+  %cdr symbol-name swap drop box
+;
+
+: symbol-substring ( sym from to -- sym )
+  rot dup symbolp invert abort" symbol-substring: not a symbol"
+  ( from to sym ) %cdr symbol-name ( from to addr u ) { from to addr u }
+  addr from + u from - to from - + intern
 ;
 
 
@@ -526,6 +547,14 @@ defer evlist
   (if (null lst) nil
     (cons (car lst) (remove-duplicates (filter (lambda (x) (not (eq x (car lst)))) (cdr lst))))))
 
+(defun symbol-substring (sym from to)
+  ((forth symbol-substring) sym ((forth %cdr) from) ((forth %cdr) to)))
+(defun symbol-len (sym)
+  ((forth symbol-len) (quote ?var)))
+
+(defun reverse (lst)
+  (if (null lst) nil (append (reverse (cdr lst)) (cons (car lst) nil))))
+
 ;
 
 \ TESTS
@@ -675,21 +704,25 @@ defer evlist
 (defun clear-predicate (symbol)
   (setq *db-predicates* (filter (lambda (x) (not (eq (car x) symbol))) *db-predicates*)))
 
-
 (defun prolog-success (var-names vars cont)
   (if (null vars) (print (quote yes))
-      (mapcar (lambda (x) (display (car x)) (display (quote =)) (display (cdr x)) (newline))
-          (zip var-names vars))))
+      (progn
+        (mapcar (lambda (x)
+                  (progn
+                    (show (car x)) (show (quote =)) (show (var-deref (cdr x)))
+                    (newline)))
+          (zip var-names vars))
+        (newline))))
 
-(defun reverse (lst)
-  (if (null lst) nil (append (reverse (cdr lst)) (cons (car lst) nil))))
-
-(defun success () (print (quote yes)))
+(defun delete-var-? (s) (symbol-substring s 1 (symbol-len s)))
+(defun ignore () nil)
 
 (defun run-prolog (goals)
- (let ((vars (variables-in goals)))
+ (let* ((vars (remove-duplicates (variables-in goals)))
+        (var-names (mapcar delete-var-? vars)))
    (clear-predicate (quote toplevel-query))
-   (add-clause (cons (list (quote toplevel-query)) goals))
+   (add-clause (append (cons (list (quote toplevel-query)) goals)
+                       (list (list (quote prolog-success) var-names vars))))
    (let ((uncompiled (reverse *uncompiled*)))
      (setq *uncompiled* nil)
      (append
@@ -698,7 +731,7 @@ defer evlist
                    (compile-predicate sym (cdr (assq sym *db-predicates*))))
                  uncompiled))
          (list (list (quote setq) (quote *trail*) nil)
-               (list (quote toplevel-query) (quote success)))))))
+               (list (quote toplevel-query) (quote ignore)))))))
 
 (defmacro ?- goals (run-prolog goals))
 
@@ -706,18 +739,10 @@ defer evlist
 
 :lisp
 
-(let ((x (?))
-      (old-trail1 *trail*))
- (print (unify! x (?)))
- (print (var-deref x))
- (print *trail*)
- (undo-bindings! old-trail1)
- (print (var-deref x)))
-
 (<- (member ?item (?item . ?rest)))
 (<- (member ?item (?x . ?rest)) (member ?item ?rest))
 
-(?- (member 2 (list 2 3 2 3)))
+(?- (member ?x (2 3 ?y 3)) (= ?y 4))
 
 
 ;
