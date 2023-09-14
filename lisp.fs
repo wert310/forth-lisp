@@ -8,7 +8,7 @@ begin-structure symtab-entry
   field: sym-name
 end-structure
 
-10000 cells constant SYMTAB-SIZE
+100000 cells constant SYMTAB-SIZE
 
 SYMTAB-SIZE allocate throw dup symtab-entry erase constant stp0
 stp0 value symtab
@@ -382,7 +382,7 @@ defer evlist
 : symbol-substring ( sym from to -- sym )
   rot dup symbolp invert abort" symbol-substring: not a symbol"
   ( from to sym ) %cdr symbol-name ( from to addr u ) { from to addr u }
-  addr from + u from - to from - + intern
+  addr from + u from - to from - 1- + intern
 ;
 
 
@@ -550,7 +550,7 @@ defer evlist
 (defun symbol-substring (sym from to)
   ((forth symbol-substring) sym ((forth %cdr) from) ((forth %cdr) to)))
 (defun symbol-len (sym)
-  ((forth symbol-len) (quote ?var)))
+  ((forth symbol-len) sym))
 
 (defun reverse (lst)
   (if (null lst) nil (append (reverse (cdr lst)) (cons (car lst) nil))))
@@ -704,12 +704,18 @@ defer evlist
 (defun clear-predicate (symbol)
   (setq *db-predicates* (filter (lambda (x) (not (eq (car x) symbol))) *db-predicates*)))
 
+(defun deref-exp (exp)
+ (cond ((and (var-p exp) (not (var-bound-p exp))) exp)
+       ((var-p exp) (deref-exp (var-deref exp)))
+       ((consp exp) (cons (deref-exp (car exp)) (deref-exp (cdr exp))))
+       (t exp)))
+
 (defun prolog-success (var-names vars cont)
   (if (null vars) (print (quote yes))
       (progn
         (mapcar (lambda (x)
                   (progn
-                    (show (car x)) (show (quote =)) (show (var-deref (cdr x)))
+                    (show (car x)) (show (quote =)) (show (deref-exp (cdr x)))
                     (newline)))
           (zip var-names vars))
         (newline))))
@@ -742,7 +748,14 @@ defer evlist
 (<- (member ?item (?item . ?rest)))
 (<- (member ?item (?x . ?rest)) (member ?item ?rest))
 
-(?- (member ?x (2 3 ?y 3)) (= ?y 4))
+(<- (app () ?x ?x))
+(<- (app ?x () ?x))
+(<- (app (?x . ?rest) ?y (?x . ?app)) (app ?rest ?y ?app))
 
+(<- (rev () ()))
+(<- (rev (?x . ?rest) ?rev) (rev ?rest ?rest1) (app ?rest1 (?x) ?rev))
+
+(?- (member ?x (2 3 ?y 3)) (= ?y 4))
+(?- (rev (1 2 3 4) ?l))
 
 ;
