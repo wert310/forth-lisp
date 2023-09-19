@@ -48,7 +48,7 @@ stp0 value symtab
 \ -----------------------------------------------------------------------------
 \ HEAP
 
-10000000 cells constant HEAP-SIZE
+100000000 cells constant HEAP-SIZE
 HEAP-SIZE allocate throw constant heap0
 variable heap heap0 heap !
 
@@ -57,6 +57,8 @@ variable heap heap0 heap !
   dup heap0 HEAP-SIZE + >= abort" out of memory!"
 ;
 : hfree drop ; \ TODO
+
+: halloc 2 cells allocate throw ;
 
 : %cons ( a b -- addr )
   halloc { a b addr }
@@ -627,7 +629,8 @@ defer evlist
 (defun symbol-var-p (sym) (and (symbolp sym) (eq (symbol-ref sym 0) (quote ?))))
 
 (defun compile-arg (arg parms)
-  (cond ((or (symbol-var-p arg) (and (symbolp arg) (memq arg parms))) arg)
+  (cond ((eq arg (quote ?)) (quote (?)))
+        ((or (symbol-var-p arg) (and (symbolp arg) (memq arg parms))) arg)
         ((consp arg) (list (quote cons) (compile-arg (car arg) parms) (compile-arg (cdr arg) parms)))
         ((null arg) nil)
         (t (list (quote quote) arg))))
@@ -650,7 +653,7 @@ defer evlist
                  (list (list (quote lambda) nil (compile-clause-body (cdr body) cont)))))))))
 
 (defun variables-in (exp)
-  (cond ((symbol-var-p exp) (list exp))
+  (cond ((and (not (eq exp (quote ?))) (symbol-var-p exp)) (list exp))
         ((consp exp) (append (variables-in (car exp)) (variables-in (cdr exp))))
         (t nil)))
 
@@ -737,7 +740,7 @@ defer evlist
                    (compile-predicate sym (cdr (assq sym *db-predicates*))))
                  uncompiled))
          (list (list (quote setq) (quote *trail*) nil)
-               (list (quote toplevel-query) (quote ignore)))))))
+               (list (quote toplevel-query) (quote ignore)) (list (quote print) (list (quote quote) (quote no))))))))
 
 (defmacro ?- goals (run-prolog goals))
 
@@ -755,7 +758,40 @@ defer evlist
 (<- (rev () ()))
 (<- (rev (?x . ?rest) ?rev) (rev ?rest ?rest1) (app ?rest1 (?x) ?rev))
 
-(?- (member ?x (2 3 ?y 3)) (= ?y 4))
-(?- (rev (1 2 3 4) ?l))
+(?- (member ?x (2 3 ? 3)) (= ?y 4))
+(?- (rev (1 2 3 4 ?) ?l))
+(?- (member 1 (3 4)))
+
+
+(defun iota/3 (from to lst cont)
+  (if (unify! lst (iota (var-deref from) (var-deref to)))
+    (funcall cont)))
+
+(?- (iota/3 0 10 ?l) (rev ?l ?o))
+
+(<- (rightof ?x ?y (?x ?y . ?rest)))
+(<- (rightof ?x ?y (?z . ?rest)) (rightof ?x ?y ?rest))
+(<- (nextto ?x ?y ?l) (rightof ?x ?y ?l))
+(<- (nextto ?x ?y ?l) (rightof ?y ?x ?l))
+(<- (zebra ?h ?w ?z)
+    (= ?h ((house norwegian ? ? ? ?) ? (house ? ? ? milk ?) ? ?))
+    (member (house englishman ? ? ? red) ?h)
+    (member (house spaniard dog ? ? ?) ?h)
+    (member (house ? ? ? coffee green) ?h)
+    (member (house ukrainian ? ? tea ?) ?h)
+    (rightof (house ? ? ? ? ivory) (house ? ? ? ? green) ?h)
+    (member (house ? snails winston ? ? ) ?h)
+    (member (house ? ? kools ? yellow) ?h)
+    (nextto (house ? ? chesterfield ? ?) (house ? fox ? ? ?) ?h)
+    (nextto (house ? ? kools ? ?) (house ? horse ? ? ?) ?h)
+    (member (house ? ? luckystrike orange-juice ?) ?h)
+    (nextto (house norwegian ? ? ? ?) (house ? ? ? ? blue) ?h)
+    (member (house japanese ? parliaments ? ?) ?h)
+    (member (house ?w ? ? water ?) ?h)
+    (member (house ?z zebra ? ? ?) ?h))
+
+(?- (zebra ?h ?w ?z))
 
 ;
+
+bye
