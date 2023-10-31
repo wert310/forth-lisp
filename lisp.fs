@@ -58,7 +58,7 @@ variable heap heap0 heap !
 ;
 : hfree drop ; \ TODO
 
-: halloc 2 cells allocate throw ;
+: halloc 2 cells allocate throw ; \ FIXME
 
 : %cons ( a b -- addr )
   halloc { a b addr }
@@ -775,6 +775,7 @@ defer evlist
 (<- (nextto ?x ?y ?l) (rightof ?y ?x ?l))
 (<- (zebra ?h ?w ?z)
     (= ?h ((house norwegian ? ? ? ?) ? (house ? ? ? milk ?) ? ?))
+    (nextto (house norwegian ? ? ? ?) (house ? ? ? ? blue) ?h)
     (member (house englishman ? ? ? red) ?h)
     (member (house spaniard dog ? ? ?) ?h)
     (member (house ? ? ? coffee green) ?h)
@@ -785,10 +786,10 @@ defer evlist
     (nextto (house ? ? chesterfield ? ?) (house ? fox ? ? ?) ?h)
     (nextto (house ? ? kools ? ?) (house ? horse ? ? ?) ?h)
     (member (house ? ? luckystrike orange-juice ?) ?h)
-    (nextto (house norwegian ? ? ? ?) (house ? ? ? ? blue) ?h)
     (member (house japanese ? parliaments ? ?) ?h)
     (member (house ?w ? ? water ?) ?h)
     (member (house ?z zebra ? ? ?) ?h))
+
 
 (?- (zebra ?h ?w ?z))
 
